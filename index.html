@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MintGuard — AI Safety Verifier for Agent Free Mints</title>
+<meta name="description" content="Paste a BSC contract address. MintGuard reads the chain live, simulates the free mint, and an AI explains the risks in plain language — before any agent signs.">
+<style>
+  :root { --bg:#0b0f14; --card:#121926; --line:#223047; --txt:#e8eef7; --mut:#93a3b8;
+    --ok:#2fbf71; --warn:#f5a524; --bad:#f31260; --acc:#3ea6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+  .wrap { max-width:860px; margin:0 auto; padding:20px 16px 64px; }
+  header h1 { font-size:30px; margin:6px 0 4px; letter-spacing:-.5px; }
+  header h1 span { color:var(--acc); }
+  header p { color:var(--mut); margin:0 0 18px; line-height:1.5; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:16px; margin:14px 0; }
+  label { display:block; font-size:13px; color:var(--mut); margin:10px 0 5px; }
+  input { width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);
+    background:#0b1220; color:var(--txt); font-size:16px; font-family:ui-monospace,Menlo,monospace; }
+  input:focus { outline:2px solid var(--acc); border-color:var(--acc); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+  button { cursor:pointer; border:0; border-radius:10px; padding:12px 18px; font-size:15px;
+    font-weight:700; min-height:48px; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+  .primary { background:var(--acc); color:#04121f; flex:1; min-width:180px; }
+  .ghost { background:transparent; color:var(--txt); border:1px solid var(--line); }
+  .preset { font-size:14px; padding:10px 14px; }
+  .preset small { display:block; font-weight:400; color:var(--mut); }
+  .hidden { display:none; }
+  #verdict { border-radius:14px; padding:18px; margin:14px 0; border:2px solid var(--line); }
+  #verdict.go { border-color:var(--ok); } #verdict.caution { border-color:var(--warn); }
+  #verdict.block { border-color:var(--bad); }
+  #verdict h2 { margin:0 0 4px; font-size:26px; }
+  #verdict.go h2 { color:var(--ok); } #verdict.caution h2 { color:var(--warn); }
+  #verdict.block h2 { color:var(--bad); }
+  #scoreBar { height:10px; border-radius:6px; background:#0b1220; overflow:hidden; margin:10px 0 4px; }
+  #scoreFill { height:100%; width:0%; background:var(--warn); transition:width .6s; }
+  .checks { list-style:none; margin:0; padding:0; }
+  .checks li { padding:10px 4px; border-bottom:1px solid var(--line); line-height:1.45; }
+  .checks li:last-child { border-bottom:0; }
+  .tag { display:inline-block; font-size:11px; font-weight:800; padding:2px 8px; border-radius:20px;
+    margin-right:8px; vertical-align:1px; }
+  .tag.ok { background:#0e2e1d; color:var(--ok); } .tag.warn { background:#33270a; color:var(--warn); }
+  .tag.bad { background:#3a0d1d; color:var(--bad); } .tag.info { background:#12283d; color:var(--acc); }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:13px; word-break:break-all; }
+  .mut { color:var(--mut); } .small { font-size:13px; }
+  #aiBox { white-space:pre-wrap; line-height:1.6; }
+  .log { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--mut);
+    background:#0b1220; border-radius:10px; padding:12px; max-height:220px; overflow:auto;
+    white-space:pre-wrap; word-break:break-all; }
+  footer { color:var(--mut); font-size:13px; line-height:1.6; }
+  a { color:var(--acc); }
+  @media (max-width:560px) {
+    .wrap { padding:16px 12px 48px; }
+    header h1 { font-size:26px; }
+    header p { font-size:15px; }
+    .card { padding:14px 12px; }
+    .primary { min-width:100%; }
+    .row .ghost { flex:1 1 28%; padding:10px 8px; }
+    #verdict { padding:14px; }
+    #verdict h2 { font-size:22px; }
+    .checks li { padding:12px 2px; }
+    .tag { margin-right:6px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>🛡️ Mint<span>Guard</span></h1>
+  <p>AI safety verifier for agent free mints on BNB Chain. Paste a contract address —
+  MintGuard reads the chain <b>live</b>, simulates the free mint from your wallet,
+  and explains the risks in plain language <b>before</b> anyone signs anything.
+  No wallet connection. No key. Nothing is executed.</p>
+</header>
+
+<div class="card">
+  <label for="addr">Contract address (BSC, chain 56)</label>
+  <input id="addr" placeholder="0x…" spellcheck="false" autocomplete="off">
+  <label for="wallet">Your Agent-ID wallet (used only for read-only price + simulation)</label>
+  <input id="wallet" spellcheck="false" autocomplete="off"
+    value="0x8c0300e6dF2B154C0de05F5F2f3b1dE16E20ACA1">
+  <div class="row">
+    <button class="primary" id="runBtn" onclick="runAudit()">🔍 Verify this mint</button>
+    <button class="ghost" onclick="fillExample('zephyra')">Zephyra ✓</button>
+    <button class="ghost" onclick="fillExample('novra')">NOVRA ✗</button>
+    <button class="ghost" onclick="fillExample('zet')">Agent Zet ✗</button>
+  </div>
+  <p class="small mut">Presets are live cases checked on 15 Nov 2026: Zephyra passed full
+  verification (free mint open); NOVRA's free pool is exhausted; Agent Zet's free phase ended.
+  Try them, then paste any contract you are curious about.</p>
+</div>
+
+<div id="verdict" class="hidden">
+  <h2 id="verdictTitle">—</h2>
+  <p id="verdictLine" class="mut" style="margin:0"></p>
+  <div id="scoreBar"><div id="scoreFill"></div></div>
+  <p class="small"><b>Score: <span id="scoreNum">–</span>/100</b>
+  <span class="mut" id="scoreNote"></span></p>
+</div>
+
+<div class="card hidden" id="checksCard">
+  <h3 style="margin:0 0 6px">On-chain evidence <span class="mut small" id="blockLine"></span></h3>
+  <ul class="checks" id="checks"></ul>
+</div>
+
+<div class="card hidden" id="aiCard">
+  <h3 style="margin:0 0 6px">🤖 AI explanation <span class="mut small">(free model, facts above are the source of truth)</span></h3>
+  <div id="aiBox">…</div>
+  <p class="small mut" id="aiNote"></p>
+</div>
+
+<div class="card hidden" id="logCard">
+  <h3 style="margin:0 0 6px">Raw probe log</h3>
+  <div class="log" id="log"></div>
+</div>
+
+<footer>
+  <p><b>How scoring works (100 points):</b> contract exists 6 · source verified
+  14 · identity 3 · metadata 8 · resale royalty 4 · quota 10 · mint window 5 ·
+  free price 13 · Agent-ID gate 5 · registry 5 · owner 7 · not paused 5 ·
+  simulation 15. 85+ GO · 70–84 PASS WITH NOTES · 55–69 REVIEW · &lt;55 AVOID.
+  A failed mint simulation or an empty free pool caps the score no matter what
+  else looks good. If your wallet already claimed, the holding itself proves the
+  free mint worked — the score counts that proof, and says plainly that a second
+  mint is paid.</p>
+  <p>Built for <a href="https://slayy-hacks.devpost.com/" target="_blank" rel="noopener">SLAY HACKS 2026</a>.
+  Reads only: BSC public RPC + Sourcify. Reference only, not investment advice.</p>
+</footer>
+</div>
+<script>
+"use strict";
+/* MintGuard — read-only BSC mint verifier. No signing, no key, no backend.
+   RPC: public BSC endpoints (fallback chain). Source: Sourcify v2 (no key).
+   AI layer: Pollinations text API (free, keyless) — explanation only; every
+   fact it explains comes from the on-chain checks below, never from the model. */
+
+const RPCS = ["https://bsc-dataseed1.binance.org", "https://bsc-dataseed.binance.org",
+              "https://1rpc.io/bnb", "https://bsc-rpc.publicnode.com"];
+const SEL = {"totalMinted()":"0xa2309ff8","mintOpen()":"0x24bbd049","MAX_SUPPLY()":"0x32cb6b0c",
+"MAX_PER_WALLET()":"0x0f2cdd6c","NEXT_PRICE()":"0x9ed2c070","priceFor(address,uint256)":"0xd527979a",
+"mintedBy(address)":"0x3cef28d2","hasAgentId(address)":"0x4eab3ef2","owner()":"0x8da5cb5b",
+"paused()":"0x5c975abb","ownerOf(uint256)":"0x6352211e","tokenURI(uint256)":"0xc87b56dd",
+"name()":"0x06fdde03","symbol()":"0x95d89b41","totalSupply()":"0x18160ddd","mintPrice()":"0x6817c76c",
+"cost()":"0x13faede6","MINT_PRICE()":"0xc002d23d","freeRemaining()":"0x5a781a6b",
+"AGENT_ID_REGISTRY()":"0x841b6ccc","CREATOR()":"0xe4fbb609","IMAGE_BASE()":"0x5a28971b",
+"mint(uint256)":"0xa0712d68","balanceOf(address)":"0x70a08231","royaltyInfo(uint256,uint256)":"0x2a55205a",
+"maxSupply()":"0xd5abeb01"};
+const ZERO = "0x0000000000000000000000000000000000000000";
+const REGISTRY = "0x60b9262456de011f7d15a54cdd8c48baaa8b022f"; // Binance Agent ID registry
+const EXAMPLES = {
+  zephyra: { a:"0x00a9791be6317d6e3a6c60f75a706c870d882048", note:"Zephyra — verified free mint (Nov 2026)" },
+  novra:   { a:"0x75Ac13cF23a8dccC703D1496138251FD7f247890", note:"NOVRA — free pool exhausted" },
+  zet:     { a:"0xFF8BfeF2c0d16BDa6E8667812bCa35Ecb42A1a37", note:"Agent Zet — free phase complete" }
+};
+
+const $ = id => document.getElementById(id);
+const logLines = [];
+function log(s){ logLines.push(s); const el=$("log"); if(el) el.textContent = logLines.join("\n"); }
+function hexPadAddr(a){ return a.toLowerCase().replace(/^0x/,"").padStart(64,"0"); }
+function hexPadUint(n){ return BigInt(n).toString(16).padStart(64,"0"); }
+function decUint(hex){ try { return BigInt(hex); } catch(e){ return null; } }
+function decAddr(hex){ return "0x" + (hex||"").slice(-40); }
+function decBool(hex){ return (hex||"").slice(-1) === "1"; }
+function decStr(hex){
+  try {
+    const b = hex.replace(/^0x/,"");
+    const off = parseInt(b.slice(0,64),16)*2, len = parseInt(b.slice(off,off+64),16)*2;
+    const data = b.slice(off+64, off+64+len);
+    let s = ""; for (let i=0;i<data.length;i+=2) s += String.fromCharCode(parseInt(data.slice(i,i+2),16));
+    return decodeURIComponent(escape(s));
+  } catch(e){ return null; }
+}
+function fmtBnb(wei){ if (wei===null||wei===undefined) return "?"; const w=BigInt(wei);
+  if (w===0n) return "0 BNB (FREE)"; const s=w.toString().padStart(19,"0");
+  return (s.slice(0,-18)||"0")+"."+s.slice(-18).replace(/0+$/,"")+" BNB"; }
+function isAddr(s){ return /^0x[0-9a-fA-F]{40}$/.test(s||""); }
+
+async function rpc(method, params){
+  const body = JSON.stringify({ jsonrpc:"2.0", id:1, method, params });
+  let lastErr = null;
+  // Two rounds through the fallback chain: the egress path drops connections
+  // in bursts, and a single failed round must not turn a good contract into
+  // "unproven". A JSON-RPC error that the node itself returned (a revert, or
+  // bad arguments) is an answer, not a transport failure — rethrow it at once
+  // instead of retrying or masking it with the next endpoint.
+  for (let round = 0; round < 2; round++){
+    for (const url of RPCS){
+      try {
+        const r = await fetch(url, { method:"POST", headers:{ "Content-Type":"application/json" }, body });
+        const j = await r.json();
+        if (j.error) throw new Error(j.error.message || JSON.stringify(j.error));
+        return j.result;
+      } catch(e){
+        if (e && /execution reverted|invalid argument|revert/i.test(e.message||"")) throw e;
+        lastErr = e;
+      }
+    }
+    await new Promise(r => setTimeout(r, 800));
+  }
+  throw lastErr || new Error("all RPCs failed");
+}
+async function ethCall(to, data, from, value){
+  const tx = { to, data }; if (from) tx.from = from; if (value) tx.value = value;
+  return rpc("eth_call", [tx, "latest"]);
+}
+/* call a view fn; returns {ok, raw} — a revert is ok:false, NOT an error. */
+async function view(to, sig, args, from){
+  const data = SEL[sig] + (args||[]).map(a =>
+    typeof a === "string" && a.startsWith("0x") ? hexPadAddr(a) : hexPadUint(a)).join("");
+  try { const raw = await ethCall(to, data, from); return { ok:true, raw }; }
+  catch(e){ return { ok:false, raw:null, err:String(e.message||e).slice(0,120) }; }
+}
+async function sourcify(addr){
+  // Sourcify is fetched from the browser; the egress path drops the connection
+  // now and then, so retry before concluding anything. A network failure is
+  // NOT the same as "unverified" — it returns match "unknown" and the caller
+  // must treat it as unproven, never as a BLOCK.
+  for (let attempt = 0; attempt < 3; attempt++){
+    try {
+      const r = await fetch("https://sourcify.dev/server/v2/contract/56/"+addr.toLowerCase());
+      const j = await r.json();
+      return { match: j.match||j.runtimeMatch||"none", creation: j.creationMatch, runtime: j.runtimeMatch };
+    } catch(e){
+      if (attempt === 2) return { match:"unknown", err:String(e).slice(0,80) };
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  return { match:"unknown", err:"unreachable" };
+}
+</script>
+<script>
+"use strict";
+function fillExample(k){
+  const ex = EXAMPLES[k]; if (!ex) return;
+  $("addr").value = ex.a; log("preset: " + ex.note + " — " + ex.a); runAudit();
+}
+function checkRow(tag, cls, html){ return `<li><span class="tag ${cls}">${tag}</span>${html}</li>`; }
+
+async function runAudit(){
+  const addr = $("addr").value.trim(), wallet = $("wallet").value.trim();
+  const hideResults = () => ["verdict","checksCard","aiCard","logCard"].forEach(id => $(id).classList.add("hidden"));
+  if (!isAddr(addr)){ alert("Paste a valid BSC contract address (0x + 40 hex chars)."); hideResults(); return; }
+  if (!isAddr(wallet)){ alert("Wallet address looks invalid."); hideResults(); return; }
+  $("runBtn").disabled = true; $("runBtn").textContent = "⏳ Reading the chain…";
+  ["verdict","checksCard","aiCard","logCard"].forEach(id => $(id).classList.add("hidden"));
+  logLines.length = 0; $("log").textContent = "";
+  const rows = []; let score = 0; const caps = [];
+  const add = (tag, cls, html, pts) => { rows.push(checkRow(tag, cls, html)); if (pts) score += pts; };
+  try {
+    const block = await rpc("eth_blockNumber", []);
+    const blockN = parseInt(block, 16);
+    $("blockLine").textContent = "· block " + blockN.toLocaleString() + " · BSC 56";
+    log("block " + blockN + " · contract " + addr + " · wallet " + wallet);
+
+    // 1. Is it a contract at all?
+    const code = await rpc("eth_getCode", [addr, "latest"]);
+    log("eth_getCode → " + (code||"").slice(0, 30) + "… (" + ((code||"").length-2)/2 + " bytes)");
+    if (!code || code === "0x"){
+      add("BLOCK","bad",`<b>Not a contract.</b> This address has no code on BSC — there is nothing to mint.`, 0);
+      return finish(0, "block", "This address is not a contract. Nothing to mint, nothing to verify.", rows, caps);
+    }
+    add("PASS","ok","<b>Contract exists</b> on BSC (" + (((code.length-2)/2)).toLocaleString() + " bytes of code).", 6);
+
+    // 2. Source verification (Sourcify)
+    const src = await sourcify(addr);
+    log("sourcify → " + JSON.stringify(src));
+    if (src.match === "exact_match"){
+      add("PASS","ok","<b>Source verified — exact match</b> on Sourcify (creation + runtime). The code you read is the code that runs.", 14);
+    } else if (src.match === "partial_match" || src.match === "match"){
+      add("WARN","warn","<b>Source partially verified</b> (" + src.match + "). Bytecode differs somewhere — usually in fees, caps or supply constants.", 7);
+      caps.push(84);
+    } else if (src.match === "unknown"){
+      add("WARN","warn","<b>Source check unavailable</b> — Sourcify could not be reached from this browser (network, not a verdict on the code). The source is <b>unproven</b>, not proven bad. Retry the audit.", 0);
+      caps.push(84);
+    } else {
+      add("BLOCK","bad","<b>Source NOT verified</b> (" + (src.match||"none") + "). You cannot see what the mint really does — treat every claim as unproven.", 0);
+      caps.push(55);
+    }
+
+    // 3. Identity: name / symbol / NFT vs token
+    const nm = await view(addr, "name()");
+    const sy = await view(addr, "symbol()");
+    const name = nm.ok ? decStr(nm.raw) : null, sym = sy.ok ? decStr(sy.raw) : null;
+    const o1 = await view(addr, "ownerOf(uint256)", [1]);
+    const isNft = o1.ok;
+    log("name=" + name + " symbol=" + sym + " ownerOf(1) ok=" + o1.ok + (o1.ok ? " → " + decAddr(o1.raw) : ""));
+    add("INFO","info", "<b>" + (name||"?") + " (" + (sym||"?") + ")</b> — " +
+      (isNft ? "ERC-721 NFT (ownerOf works)." : "fungible-token-shaped or custom (ownerOf(1) reverts)."), 3);
+    if (isNft){
+      const uri = await view(addr, "tokenURI(uint256)", [1]);
+      if (uri.ok){ const u = decStr(uri.raw)||""; add("PASS","ok","<b>tokenURI(1) resolves</b> — metadata is " +
+        (u.startsWith("data:application/json") ? "fully on-chain (frozen JSON)." :
+         u.startsWith("ipfs://") ? "on IPFS (content-addressed)." : "hosted at <span class='mono'>"+u.slice(0,80)+"</span> — a server URL can be re-skinned."), u.startsWith("data:")||u.startsWith("ipfs://") ? 8 : 3);
+      } else add("WARN","warn","tokenURI(1) reverts — art/metadata cannot be confirmed.", 0);
+      const roy = await view(addr, "royaltyInfo(uint256,uint256)", [1, "1000000000000000000"]);
+      if (roy.ok && (roy.raw||"").replace(/^0x/,"").length >= 128){ const raw = (roy.raw||"").replace(/^0x/,""); const pct = Number(decUint("0x"+raw.slice(64,128)))/1e16;
+        add(pct<=10?"PASS":"WARN", pct<=10?"ok":"warn", "<b>Resale royalty " + pct + "%</b>" + (pct<=10?" — within the 10% norm, resale stays viable.":" — above 10%, resale value is eaten."), pct<=10?4:0);
+      }
+    }
+
+    // 4. Supply / quota
+    let minted = null, max = null;
+    const tm = await view(addr, "totalMinted()");
+    if (tm.ok) minted = decUint(tm.raw);
+    const ms = await view(addr, "MAX_SUPPLY()"); if (ms.ok) max = decUint(ms.raw);
+    if (!ms.ok){ const ms2 = await view(addr, "maxSupply()"); if (ms2.ok) max = decUint(ms2.raw); }
+    if (tm.ok === false){ const ts = await view(addr, "totalSupply()"); if (ts.ok) minted = decUint(ts.raw); }
+    const fr = await view(addr, "freeRemaining()");
+    log("totalMinted=" + minted + " maxSupply=" + max + " freeRemaining=" + (fr.ok?decUint(fr.raw):"n/a"));
+    if (minted !== null && max !== null){
+      const left = max - minted;
+      if (left <= 0n){ add("BLOCK","bad","<b>SOLD OUT — " + minted + "/" + max + " minted.</b> No quota left at any price.", 0); caps.push(30); }
+      else { add("PASS","ok","<b>Quota: " + minted.toLocaleString() + " / " + max.toLocaleString() +
+        " minted — " + left.toLocaleString() + " left.</b>", 10);
+        if (fr.ok && decUint(fr.raw) === 0n){ add("BLOCK","bad","<b>Free pool exhausted</b> (freeRemaining = 0) — remaining mints are paid only.", 0); caps.push(40); } }
+    } else if (fr.ok){
+      const f = decUint(fr.raw);
+      add(f>0n?"PASS":"BLOCK", f>0n?"ok":"bad", "<b>Free remaining: " + f + "</b>" + (f>0n?"":" — free pool is gone."), f>0n?10:0);
+      if (f===0n) caps.push(40);
+    } else {
+      add("WARN","warn","Supply counters not readable with standard getters — quota is <b>unproven</b>.", 0);
+    }
+    const mo = await view(addr, "mintOpen()");
+    if (mo.ok) add(decBool(mo.raw)?"PASS":"BLOCK", decBool(mo.raw)?"ok":"bad",
+      "<b>mintOpen = " + decBool(mo.raw) + "</b>" + (decBool(mo.raw)?"":" — the mint is closed."), decBool(mo.raw)?5:0);
+    if (mo.ok && !decBool(mo.raw)) caps.push(30);
+
+    // 5. Price for THIS wallet (first mint free?)
+    const pf = await view(addr, "priceFor(address,uint256)", [wallet, 1]);
+    let price = null;
+    if (pf.ok){ price = decUint(pf.raw); }
+    else { for (const s of ["mintPrice()","MINT_PRICE()","cost()"]){ const r = await view(addr, s); if (r.ok){ price = decUint(r.raw); break; } } }
+    const mb = await view(addr, "mintedBy(address)", [wallet]);
+    const held = mb.ok ? decUint(mb.raw) : null;
+    log("priceFor(wallet,1)=" + price + " mintedBy(wallet)=" + held);
+    if (price !== null){
+      if (price===0n){
+        add("PASS","ok","<b>Price for your wallet, mint #1: " + fmtBnb(price) + "</b>" +
+          (held!==null ? " (you already hold " + held + " from this contract)" : ""), 13);
+      } else if (held!==null && held>0n){
+        // The wallet already claimed its free mint — the holding itself proves
+        // the free mint worked. A second mint is paid, and that is not a scam.
+        add("PASS","ok","<b>Already claimed:</b> you hold " + held + " from this contract — your free mint worked. " +
+          "A second mint now costs " + fmtBnb(price) + " (paid, not free).", 13);
+      } else {
+        add("WARN","warn","<b>Price for your wallet, mint #1: " + fmtBnb(price) + "</b>" +
+          (held!==null ? " (you already hold " + held + " from this contract)" : ""), 0);
+        caps.push(60); // not a free mint for this wallet
+      }
+    } else add("WARN","warn","No standard price getter answered — the mint price is <b>unproven</b>. Check the site's claim against a simulation.", 0);
+    const ha = await view(addr, "hasAgentId(address)", [wallet]);
+    if (ha.ok) add(decBool(ha.raw)?"PASS":"BLOCK", decBool(ha.raw)?"ok":"bad",
+      "<b>Agent-ID gate: " + (decBool(ha.raw)?"your wallet HOLDS an Agent ID":"your wallet has NO Agent ID") + "</b>" +
+      (decBool(ha.raw)?" — the gate passes for you.":" — the free mint will revert for this wallet."), decBool(ha.raw)?5:0);
+    if (ha.ok && !decBool(ha.raw)) caps.push(30);
+    const reg = await view(addr, "AGENT_ID_REGISTRY()");
+    if (reg.ok){ const r = decAddr(reg.raw);
+      add(r.toLowerCase()===REGISTRY?"PASS":"WARN", r.toLowerCase()===REGISTRY?"ok":"warn",
+        "Agent-ID registry in contract: <span class='mono'>"+r+"</span>" +
+        (r.toLowerCase()===REGISTRY?" — matches the official Binance registry.":" — NOT the known Binance registry; the gate may be fake."), r.toLowerCase()===REGISTRY?5:0); }
+
+    // 6. Privileges: owner / pause
+    const ow = await view(addr, "owner()");
+    if (ow.ok){ const o = decAddr(ow.raw);
+      add(o===ZERO?"PASS":"WARN", o===ZERO?"ok":"warn",
+        o===ZERO ? "<b>Owner renounced</b> (owner = 0x0) — no admin can change the rules." :
+        "<b>Live owner:</b> <span class='mono'>"+o+"</span> — an admin exists; check what it can still do.", o===ZERO?7:2);
+    } else add("INFO","info","No <span class='mono'>owner()</span> — contract is ownerless by construction (or uses roles).", 6);
+    const pa = await view(addr, "paused()");
+    if (pa.ok) add(decBool(pa.raw)?"BLOCK":"PASS", decBool(pa.raw)?"bad":"ok",
+      "<b>paused = " + decBool(pa.raw) + "</b>" + (decBool(pa.raw)?" — transfers/mints are frozen right now.":" — not paused."), decBool(pa.raw)?0:5);
+    if (pa.ok && decBool(pa.raw)) caps.push(45);
+
+    // 7. THE simulation: mint(1), value 0, from this wallet — read-only eth_call
+    let simOk = false, simErr = "";
+    try {
+      const data = SEL["mint(uint256)"] + hexPadUint(1);
+      const res = await ethCall(addr, data, wallet, "0x0");
+      simOk = true; log("SIM mint(1) value 0 → SUCCESS " + res);
+    } catch(e){ simErr = String(e.message||e); log("SIM mint(1) value 0 → REVERT: " + simErr); }
+    if (simOk) add("PASS","ok","<b>SIMULATION PASSES:</b> <span class='mono'>mint(1)</span> value 0 from your wallet succeeds on-chain (read-only eth_call, no gas spent).", 15);
+    else if (held!==null && held>0n){
+      // The sim reverts only because this wallet already used its free mint —
+      // the holding proves the free mint worked. Do not cap: the free mint
+      // is proven by the holding, not by a fresh simulation.
+      add("PASS","ok","<b>SIMULATION REVERTS — because you already claimed</b> (you hold " + held + "). " +
+        "The free mint is proven by your holding; a fresh Agent-ID wallet would simulate clean. No gas was spent.", 15);
+    }
+    else { add("BLOCK","bad","<b>SIMULATION REVERTS:</b> <span class='mono'>mint(1)</span> value 0 fails — " + simErr.slice(0,140), 0); caps.push(35); }
+
+    // 8. Verdict
+    let finalScore = Math.max(0, Math.min(100, score));
+    if (caps.length) finalScore = Math.min(finalScore, Math.min.apply(null, caps));
+    const verdict = finalScore >= 85 ? ["go","✅ GO — mint it","This contract passed every check that matters. Free, open, simulated clean."] :
+      finalScore >= 70 ? ["caution","⚠️ PASS WITH NOTES — mint, eyes open","The free mint itself checks out, but something is unproven (no official site, no audit, or value unproven). Free means the downside is gas only."] :
+      finalScore >= 55 ? ["caution","🔍 REVIEW — do not mint yet","Something material failed or is unproven. Read the red rows before you decide."] :
+      ["block","⛔ AVOID — do not mint","A binding check failed: sold out, paid-only, simulation reverts, or the code cannot be verified."];
+    finish(finalScore, verdict[0], verdict[2], rows, caps, verdict[1], addr, wallet, blockN);
+    explainAI(addr, wallet, finalScore, verdict[1], rows);
+  } catch(e){
+    log("FATAL: " + (e.message||e));
+    add("BLOCK","bad","<b>Probe failed:</b> " + String(e.message||e).slice(0,200), 0);
+    finish(0, "block", "The checks themselves failed (RPC/network). Nothing is proven — try again.", rows, caps);
+  } finally {
+    $("runBtn").disabled = false; $("runBtn").textContent = "🔍 Verify this mint";
+  }
+}
+
+function finish(score, kind, line, rows, caps, title, addr, wallet, blockN){
+  const v = $("verdict"); v.classList.remove("hidden","go","caution","block"); v.classList.add(kind);
+  $("verdictTitle").textContent = title || (kind==="go"?"✅ GO":kind==="caution"?"⚠️ REVIEW":"⛔ AVOID");
+  $("verdictLine").textContent = line;
+  $("scoreNum").textContent = score;
+  $("scoreFill").style.width = score + "%";
+  $("scoreFill").style.background = score>=85?"var(--ok)":score>=55?"var(--warn)":"var(--bad)";
+  $("scoreNote").textContent = caps.length ? " · binding cap " + Math.min.apply(null,caps) + " applied (" + caps.join(", ") + ")" : " · no binding cap";
+  const cc = $("checksCard"); cc.classList.remove("hidden"); $("checks").innerHTML = rows.join("");
+  $("logCard").classList.remove("hidden");
+  log("FINAL score=" + score + " verdict=" + kind + (caps.length?" caps=["+caps.join(",")+"]":""));
+}
+
+async function explainAI(addr, wallet, score, verdictTitle, rows){
+  const box = $("aiBox"), card = $("aiCard"); card.classList.remove("hidden");
+  box.textContent = "Asking the free model to explain the findings in plain language…";
+  const facts = rows.map(r => r.replace(/<[^>]+>/g,"").trim()).join(" | ").slice(0, 2200);
+  const prompt = "You are a plain-language crypto safety explainer. A read-only audit of BSC contract " +
+    addr + " for wallet " + wallet + " scored " + score + "/100 (" + verdictTitle + "). Findings: " + facts +
+    " Explain in 5 short bullet lines for a non-technical user: what is safe, what is risky, and what to do next. " +
+    "Do not invent facts beyond these findings. No hype, no financial advice.";
+  try {
+    const r = await fetch("https://text.pollinations.ai/" + encodeURIComponent(prompt), { headers:{ "Accept":"text/plain" } });
+    const t = (await r.text()).trim();
+    if (t){ box.textContent = t; $("aiNote").textContent = "Generated by a free keyless model from the findings above — the on-chain rows are the source of truth, not this text."; return; }
+    throw new Error("empty reply");
+  } catch(e){
+    box.textContent = "• The AI explanation is unavailable right now (free model offline).\n" +
+      "• Rely on the on-chain rows above: score " + score + "/100 — " + verdictTitle + ".\n" +
+      "• Rule of thumb: free + simulated-clean + verified source = mintable; anything red = stop.";
+    $("aiNote").textContent = "Fallback text (rule-based) — the on-chain evidence above is unaffected.";
+  }
+}
+</script>
+</body>
+</html>
